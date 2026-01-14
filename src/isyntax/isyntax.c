@@ -64,11 +64,11 @@
 #endif
 
 // Enable/disable debug routines for creating PNGs of IDWT steps
-#define ISYNTAX_WANT_DEBUG_OUTPUT_PNG 0
+#define ISYNTAX_WANT_DEBUG_OUTPUT_PNG 1
 #if ISYNTAX_WANT_DEBUG_OUTPUT_PNG
-//#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 // stb_image_write.h provides its own crc32() implementation, so we need to prevent a conflict if we already have it
-#define STBIW_CRC32 crc32
+// #define STBIW_CRC32 crc32
 #include <stb_image_write.h>
 #endif
 
@@ -1681,7 +1681,7 @@ static void convert_ycocg_to_rgba_block(icoeff_t* Y, icoeff_t* Co, icoeff_t* Cg,
     }
 }
 
-#define DEBUG_OUTPUT_IDWT_STEPS_AS_PNG 0
+#define DEBUG_OUTPUT_IDWT_STEPS_AS_PNG 1
 
 void isyntax_idwt(icoeff_t* idwt, i32 quadrant_width, i32 quadrant_height, bool output_steps_as_png, const char* png_name) {
 	i32 full_width = quadrant_width * 2;
@@ -2103,7 +2103,7 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		}
 	}
 
-	bool output_pngs = false;
+	bool output_pngs = true;
 	const char* debug_png = "debug_idwt_";
 	/*
 	if (scale == wsi->max_scale && tile_x == 1 && tile_y == 1 && color == 0) {

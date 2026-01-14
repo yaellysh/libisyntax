@@ -5,7 +5,13 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#if defined(__APPLE__)
+#include <stdlib.h>
+#else
 #include <malloc.h>
+#endif
+#include <string.h>
+
 
 
 #define CHECK_LIBISYNTAX_OK(_libisyntax_call) do { \
@@ -19,7 +25,7 @@
 #ifdef _WIN32
 #define PATH_SEP "\\"
 #else
-#define PATH_SEP "/";
+#define PATH_SEP "/"
 #endif
 
 // This program loops through all the .isyntax files in a folder (including subfolders),

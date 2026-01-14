@@ -70,6 +70,7 @@ set(LIBISYNTAX_COMMON_SOURCE_FILES
         src/platform/work_queue.c
         src/third_party/yxml.c
         src/third_party/ltalloc.cc
+        src/third_party/stb_image_write_impl.c
 )
 
 if (WIN32)
