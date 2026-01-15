@@ -78,6 +78,10 @@
 
 #include "isyntax_dwt.c"
 
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdio.h>
+
 
 // Base64 decoder by Jouni Malinen, original:
 // http://web.mit.edu/freebsd/head/contrib/wpa/src/utils/base64.c
@@ -93,6 +97,9 @@
  */
 static const unsigned char base64_table[65] =
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static void dump_coeff_plane_png_diverging(const char* path, const i16* plane, int w, int h);
+static void dump_coeff_plane_png_magnitude(const char* path, const i16* plane, int w, int h);
 
 unsigned char * base64_decode(const unsigned char *src, size_t len,
                               size_t *out_len)
@@ -1833,6 +1840,73 @@ bool isyntax_is_parent_tile_missing(isyntax_image_t* wsi, i32 scale, i32 tile_x,
 	}
 }
 
+
+static uint8_t to_u8_diverging(long long v, long long max_abs) {
+    if (max_abs < 1) max_abs = 1;
+    long long scaled = (v * 127) / max_abs; // [-127,127]
+    long long pix = 128 + scaled;
+    if (pix < 0) pix = 0;
+    if (pix > 255) pix = 255;
+    return (uint8_t)pix;
+}
+
+static void dump_pre_idwt_quad_2x2_png_diverging(
+    const char* path,
+    const icoeff_t* qLL,
+    const icoeff_t* qHL,
+    const icoeff_t* qLH,
+    const icoeff_t* qHH,
+    int inner_w,
+    int inner_h,
+    int stride
+) {
+    // Shared robust-ish scaling: max abs over all 4 inner planes
+    long long max_abs = 1;
+    const icoeff_t* qs[4] = { qLL, qHL, qLH, qHH };
+    for (int qi = 0; qi < 4; ++qi) {
+        const icoeff_t* q = qs[qi];
+        for (int y = 0; y < inner_h; ++y) {
+            const icoeff_t* row = q + y*stride;
+            for (int x = 0; x < inner_w; ++x) {
+                long long v = (long long)row[x];
+                long long a = (v < 0) ? -v : v;
+                if (a > max_abs) max_abs = a;
+            }
+        }
+    }
+
+    int out_w = 2 * inner_w;
+    int out_h = 2 * inner_h;
+    uint8_t* img = (uint8_t*)malloc((size_t)out_w * (size_t)out_h);
+    if (!img) return;
+
+    memset(img, 128, (size_t)out_w * (size_t)out_h);
+
+    for (int y = 0; y < inner_h; ++y) {
+        for (int x = 0; x < inner_w; ++x) {
+            int i_out_tl = (y)*out_w + (x);
+            int i_out_tr = (y)*out_w + (x + inner_w);
+            int i_out_bl = (y + inner_h)*out_w + (x);
+            int i_out_br = (y + inner_h)*out_w + (x + inner_w);
+
+            long long vLL = (long long)qLL[y*stride + x];
+            long long vHL = (long long)qHL[y*stride + x];
+            long long vLH = (long long)qLH[y*stride + x];
+            long long vHH = (long long)qHH[y*stride + x];
+
+            img[i_out_tl] = to_u8_diverging(vLL, max_abs);
+            img[i_out_tr] = to_u8_diverging(vHL, max_abs);
+            img[i_out_bl] = to_u8_diverging(vLH, max_abs);
+            img[i_out_br] = to_u8_diverging(vHH, max_abs);
+        }
+    }
+
+    int ok = stbi_write_png(path, out_w, out_h, 1, img, out_w);
+    fprintf(stderr, "pre-idwt 2x2 dump: %s ok=%d max_abs=%lld\n", path, ok, max_abs);
+
+    free(img);
+}
+
 u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi, i32 scale, i32 tile_x, i32 tile_y, i32 color, icoeff_t* dest_buffer) {
 	isyntax_level_t* level = wsi->levels + scale;
 	ASSERT(tile_x >= 0 && tile_x < level->width_in_tiles);
@@ -2105,10 +2179,34 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 
 	bool output_pngs = true;
 	const char* debug_png = "debug_idwt_";
-	/*
+	
 	if (scale == wsi->max_scale && tile_x == 1 && tile_y == 1 && color == 0) {
 		output_pngs = true;
-	}*/
+	}
+
+	// Dump the INNER (non-padding) region of each quadrant as a true LL|HL / LH|HH quad
+	static int dumped = 0;
+	if (dumped < 10 && scale == 3 && tile_x == 5 && tile_y == 10 && color == 0) {
+		dumped++;
+
+		int inner_w = block_width;
+		int inner_h = block_height;
+
+		// inner top-left of each quadrant (skip padding margins)
+		const icoeff_t* qLL = quadrants[0] + pad_l * dest_stride + pad_l;
+		const icoeff_t* qHL = quadrants[1] + pad_l * dest_stride + pad_l;
+		const icoeff_t* qLH = quadrants[2] + pad_l * dest_stride + pad_l;
+		const icoeff_t* qHH = quadrants[3] + pad_l * dest_stride + pad_l;
+
+		char path[512];
+		snprintf(path, sizeof(path), "pre_idwt_quad_s%d_x%d_y%d_c%d_%d.png",
+				scale, tile_x, tile_y, color, dumped);
+
+		dump_pre_idwt_quad_2x2_png_diverging(path, qLL, qHL, qLH, qHH,
+											inner_w, inner_h, dest_stride);
+	}
+
+
 	isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
 
 	u32 invalid_edges = invalid_neighbors_h | invalid_neighbors_ll;
@@ -2330,6 +2428,49 @@ void isyntax_decompress_codeblock_in_chunk(isyntax_codeblock_t* codeblock, i32 b
 	ASSERT(offset_in_chunk >= 0);
 	isyntax_hulsken_decompress(chunk + offset_in_chunk, codeblock->block_size,
 							   block_width, block_height, codeblock->coefficient, compressor_version, out_buffer);
+
+	static int dumped = 0;						   
+	// if (codeblock->color_component == 0 && dumped < 50) {
+	if (dumped < 50) {
+		fprintf(stderr, "DUMP HIT: scale=%d x=%d y=%d comp=%d coeff=%d w=%d h=%d\n",
+        codeblock->scale, codeblock->x_coordinate, codeblock->y_coordinate,
+        codeblock->color_component, codeblock->coefficient, block_width, block_height);
+
+		dumped++;
+		int w = block_width;
+        int h = block_height;
+        int plane_size = w * h;
+
+        int coeff_count = (codeblock->coefficient == 1) ? 3 : 1;
+
+        for (int p = 0; p < coeff_count; ++p) {
+            const i16* plane = out_buffer + p * plane_size;
+
+            char path1[512];
+            snprintf(path1, sizeof(path1),
+                     "coeff_s%d_x%d_y%d_c%d_k%d_p%d_div.png",
+                     codeblock->scale,
+                     codeblock->x_coordinate,
+                     codeblock->y_coordinate,
+                     codeblock->color_component,
+                     codeblock->coefficient,
+                     p);
+
+            dump_coeff_plane_png_diverging(path1, plane, w, h);
+
+            char path2[512];
+            snprintf(path2, sizeof(path2),
+                     "coeff_s%d_x%d_y%d_c%d_k%d_p%d_mag.png",
+                     codeblock->scale,
+                     codeblock->x_coordinate,
+                     codeblock->y_coordinate,
+                     codeblock->color_component,
+                     codeblock->coefficient,
+                     p);
+
+            dump_coeff_plane_png_magnitude(path2, plane, w, h);
+        }
+    }
 }
 
 // Read between 57 and 64 bits (7 bytes + 1-8 bits) from a bitstream (least significant bit first).
@@ -2412,6 +2553,83 @@ void isyntax_test_decompress_block(const char* filename) {
 #endif
 }
  */
+
+ static void dump_coeff_plane_png_diverging(
+    const char* path, const i16* plane, int w, int h
+) {
+    // find max abs for scaling
+    int max_abs = 1;
+    for (int i = 0; i < w*h; ++i) {
+        int v = plane[i];
+        int a = (v < 0) ? -v : v;
+        if (a > max_abs) max_abs = a;
+    }
+
+    u8* img = (u8*)malloc((size_t)w * (size_t)h);
+    for (int i = 0; i < w*h; ++i) {
+        int v = plane[i];
+        // scale to [-127, +127]
+        int scaled = (int)((long long)v * 127 / max_abs);
+        int pix = 128 + scaled;
+        if (pix < 0) pix = 0;
+        if (pix > 255) pix = 255;
+        img[i] = (u8)pix;
+    }
+
+    stbi_write_png(path, w, h, 1, img, w);
+    free(img);
+}
+
+static void dump_coeff_plane_png_magnitude(
+    const char* path, const i16* plane, int w, int h
+) {
+    int max_abs = 1;
+    for (int i = 0; i < w*h; ++i) {
+        int v = plane[i];
+        int a = (v < 0) ? -v : v;
+        if (a > max_abs) max_abs = a;
+    }
+
+    u8* img = (u8*)malloc((size_t)w * (size_t)h);
+    for (int i = 0; i < w*h; ++i) {
+        int v = plane[i];
+        int a = (v < 0) ? -v : v;
+        int pix = (int)((long long)a * 255 / max_abs);
+        if (pix < 0) pix = 0;
+        if (pix > 255) pix = 255;
+        img[i] = (u8)pix;
+    }
+
+    stbi_write_png(path, w, h, 1, img, w);
+    free(img);
+}
+
+static void dump_i16_plane_diverging_png(
+    const char* path, const int16_t* plane, int w, int h
+) {
+    int max_abs = 1;
+    for (int i = 0; i < w*h; ++i) {
+        int v = (int)plane[i];
+        int a = (v < 0) ? -v : v;
+        if (a > max_abs) max_abs = a;
+    }
+
+    uint8_t* img = (uint8_t*)malloc((size_t)w * (size_t)h);
+    for (int i = 0; i < w*h; ++i) {
+        int v = (int)plane[i];
+        int scaled = (int)((long long)v * 127 / max_abs); // [-127,127]
+        int pix = 128 + scaled;                           // center at gray
+        if (pix < 0) pix = 0;
+        if (pix > 255) pix = 255;
+        img[i] = (uint8_t)pix;
+    }
+
+    int ok = stbi_write_png(path, w, h, 1, img, w);
+    fprintf(stderr, "coeff dump: %s (ok=%d, max_abs=%d)\n", path, ok, max_abs);
+
+    free(img);
+}
+
 
 bool isyntax_hulsken_decompress(u8* compressed, size_t compressed_size, i32 block_width, i32 block_height,
 								i32 coefficient, i32 compressor_version, i16* out_buffer) {
@@ -2902,6 +3120,24 @@ bool isyntax_hulsken_decompress(u8* compressed, size_t compressed_size, i32 bloc
 
 			// Convert signed magnitude to twos complement (ex. 0x8002 becomes -2)
 			signed_magnitude_to_twos_complement_16_block(current_out_buffer, block_width * block_height);
+
+			// BELOW IS TO PRINT THE COEFFICIENT PLANE TO A PNG FOR DEBUGGING PURPOSES
+			// static int dumped = 0;
+			// if (dumped < 40) {  // gate so you don't create a million files
+			// 	dumped++;
+
+			// 	char name[512];
+			// 	snprintf(name, sizeof(name),
+			// 			"coeff_plane_%d_%dx%d_idx%d.png",
+			// 			dumped, block_width, block_height, coeff_index);
+
+			// 	dump_i16_plane_diverging_png(
+			// 		name,
+			// 		(const int16_t*)current_out_buffer,
+			// 		block_width,
+			// 		block_height
+			// 	);
+			// }
 		}
 	}
 
@@ -3255,7 +3491,7 @@ bool isyntax_open(isyntax_t* isyntax, const char* filename, enum libisyntax_open
 									}
 									i16* decompressed = isyntax_hulsken_decompress(codeblock, isyntax->block_width, isyntax->block_height, 1);
 									if (decompressed) {
-#if 0
+#if 1
 										FILE* out = fopen("hulskendecompressed4.raw", "wb");
 										if(out) {
 											file_stream_write(decompressed, codeblock->decompressed_size, out);
@@ -3272,7 +3508,7 @@ bool isyntax_open(isyntax_t* isyntax, const char* filename, enum libisyntax_open
 						free(seektable);
 						seektable = NULL;
 
-//						isyntax_dump_block_header(wsi_image, "test_block_header.csv");
+						isyntax_dump_block_header(wsi_image, "test_block_header.csv");
 
 						// Allocate enough space for the maximum number of codeblock 'chunks' we can expect
 						// (the actual number of chunks may be lower, because some tiles might not exist)

@@ -3,8 +3,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <assert.h>
+#include <string.h>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
+// Don't define STB_IMAGE_WRITE_IMPLEMENTATION here since it's now in the main library
+// #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "third_party/stb_image_write.h"  // for png export
 
 #define CHECK_LIBISYNTAX_OK(_libisyntax_call) do { \
