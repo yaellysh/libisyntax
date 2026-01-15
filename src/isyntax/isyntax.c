@@ -2186,7 +2186,7 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 
 	// Dump the INNER (non-padding) region of each quadrant as a true LL|HL / LH|HH quad
 	static int dumped = 0;
-	if (dumped < 10 && scale == 3 && tile_x == 5 && tile_y == 10 && color == 0) {
+	if (dumped < 100) {
 		dumped++;
 
 		int inner_w = block_width;
