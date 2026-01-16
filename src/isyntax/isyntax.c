@@ -1907,6 +1907,40 @@ static void dump_pre_idwt_quad_2x2_png_diverging(
     free(img);
 }
 
+static void dump_coeff_block_bin_i32(
+    const char* path,
+    const icoeff_t* buf,
+    int stride,
+    int x0,
+    int y0,
+    int w,
+    int h,
+    const char* label
+) {
+    FILE* f = fopen(path, "wb");
+    if (!f) { perror("dump_coeff_block_bin_i32 fopen"); return; }
+
+    fprintf(f,
+        "ISY_CBLK_DUMP\n"
+        "label=%s\n"
+        "x0=%d\ny0=%d\n"
+        "w=%d\nh=%d\n"
+        "format=int32_rowmajor\n"
+        "DATA_BEGIN\n",
+        label ? label : "?", x0, y0, w, h
+    );
+
+    for (int yy = 0; yy < h; yy++) {
+        const icoeff_t* row = buf + (y0 + yy) * stride + x0;
+        for (int xx = 0; xx < w; xx++) {
+            int32_t v = (int32_t)row[xx];
+            fwrite(&v, sizeof(v), 1, f);
+        }
+    }
+
+    fclose(f);
+}
+
 u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi, i32 scale, i32 tile_x, i32 tile_y, i32 color, icoeff_t* dest_buffer) {
 	isyntax_level_t* level = wsi->levels + scale;
 	ASSERT(tile_x >= 0 && tile_x < level->width_in_tiles);
@@ -2197,6 +2231,7 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		const icoeff_t* qHL = quadrants[1] + pad_l * dest_stride + pad_l;
 		const icoeff_t* qLH = quadrants[2] + pad_l * dest_stride + pad_l;
 		const icoeff_t* qHH = quadrants[3] + pad_l * dest_stride + pad_l;
+		
 
 		char path[512];
 		snprintf(path, sizeof(path), "pre_idwt_quad_s%d_x%d_y%d_c%d_%d.png",
@@ -2204,7 +2239,30 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 
 		dump_pre_idwt_quad_2x2_png_diverging(path, qLL, qHL, qLH, qHH,
 											inner_w, inner_h, dest_stride);
+
+		if (getenv("ISY_DUMP_PREIDWT_BIN")) {
+			fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
+        		scale, tile_x, tile_y, color);
+
+			int w = 64, h = 64;
+			int x0 = 0, y0 = 0;
+
+			dump_coeff_block_bin_i32(
+				"isy_LL.bin", qLL, dest_stride, x0, y0, w, h, "LL"
+			);
+			dump_coeff_block_bin_i32(
+				"isy_HL.bin", qHL, dest_stride, x0, y0, w, h, "HL"
+			);
+			dump_coeff_block_bin_i32(
+				"isy_LH.bin", qLH, dest_stride, x0, y0, w, h, "LH"
+			);
+			dump_coeff_block_bin_i32(
+				"isy_HH.bin", qHH, dest_stride, x0, y0, w, h, "HH"
+			);
+		}
 	}
+
+	
 
 
 	isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
