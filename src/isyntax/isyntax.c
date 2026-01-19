@@ -2234,35 +2234,51 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		
 
 		char path[512];
-		snprintf(path, sizeof(path), "pre_idwt_quad_s%d_x%d_y%d_c%d_%d.png",
-				scale, tile_x, tile_y, color, dumped);
+		// snprintf(path, sizeof(path), "pre_idwt_quad_s%d_x%d_y%d_c%d_%d.png",
+		// 		scale, tile_x, tile_y, color, dumped);
 
-		dump_pre_idwt_quad_2x2_png_diverging(path, qLL, qHL, qLH, qHH,
-											inner_w, inner_h, dest_stride);
+		// dump_pre_idwt_quad_2x2_png_diverging(path, qLL, qHL, qLH, qHH,
+		// 									inner_w, inner_h, dest_stride);
 
 		if (getenv("ISY_DUMP_PREIDWT_BIN")) {
 			fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
-        		scale, tile_x, tile_y, color);
+					scale, tile_x, tile_y, color);
 
-			int w = 64, h = 64;
-			int x0 = 0, y0 = 0;
+			const int w = 64, h = 64;
 
-			dump_coeff_block_bin_i32(
-				"isy_LL.bin", qLL, dest_stride, x0, y0, w, h, "LL"
-			);
-			dump_coeff_block_bin_i32(
-				"isy_HL.bin", qHL, dest_stride, x0, y0, w, h, "HL"
-			);
-			dump_coeff_block_bin_i32(
-				"isy_LH.bin", qLH, dest_stride, x0, y0, w, h, "LH"
-			);
-			dump_coeff_block_bin_i32(
-				"isy_HH.bin", qHH, dest_stride, x0, y0, w, h, "HH"
-			);
+			/* Dump all 4 64x64 code-blocks: (0,0), (64,0), (0,64), (64,64) */
+			for (int by = 0; by <= 64; by += 64) {
+				for (int bx = 0; bx <= 64; bx += 64) {
+
+					char pLL[256], pHL[256], pLH[256], pHH[256];
+
+					/* Put dumps somewhere stable (your Desktop/libisyntax folder), and include x0/y0 */
+					/* For your current -n 2 case:
+					- OpenJPEG resno=0 corresponds to LL
+					- OpenJPEG resno=1 corresponds to HL/LH/HH
+					*/
+					const int rLL = 0;
+					const int rH  = 1;
+
+					snprintf(pLL, sizeof(pLL),
+							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LL_c%d_x0_%d_y0_%d.bin", rLL, color, bx, by);
+					snprintf(pHL, sizeof(pHL),
+							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HL_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
+					snprintf(pLH, sizeof(pLH),
+							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
+					snprintf(pHH, sizeof(pHH),
+							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
+
+
+
+					dump_coeff_block_bin_i32(pLL, qLL, dest_stride, bx, by, w, h, "LL");
+					dump_coeff_block_bin_i32(pHL, qHL, dest_stride, bx, by, w, h, "HL");
+					dump_coeff_block_bin_i32(pLH, qLH, dest_stride, bx, by, w, h, "LH");
+					dump_coeff_block_bin_i32(pHH, qHH, dest_stride, bx, by, w, h, "HH");
+				}
+			}
 		}
 	}
-
-	
 
 
 	isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
