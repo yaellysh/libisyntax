@@ -2227,10 +2227,10 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		int inner_h = block_height;
 
 		// inner top-left of each quadrant (skip padding margins)
-		const icoeff_t* qLL = quadrants[0] + pad_l * dest_stride + pad_l;
-		const icoeff_t* qHL = quadrants[1] + pad_l * dest_stride + pad_l;
-		const icoeff_t* qLH = quadrants[2] + pad_l * dest_stride + pad_l;
-		const icoeff_t* qHH = quadrants[3] + pad_l * dest_stride + pad_l;
+		// const icoeff_t* qLL = quadrants[0] + pad_l * dest_stride + pad_l;
+		// const icoeff_t* qHL = quadrants[1] + pad_l * dest_stride + pad_l;
+		// const icoeff_t* qLH = quadrants[2] + pad_l * dest_stride + pad_l;
+		// const icoeff_t* qHH = quadrants[3] + pad_l * dest_stride + pad_l;
 		
 
 		char path[512];
@@ -2241,43 +2241,72 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		// 									inner_w, inner_h, dest_stride);
 
 		if (getenv("ISY_DUMP_PREIDWT_BIN")) {
-			fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
-					scale, tile_x, tile_y, color);
+    fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
+            scale, tile_x, tile_y, color);
 
-			const int w = 64, h = 64;
+    const int w = 64, h = 64;
 
-			/* Dump all 4 64x64 code-blocks: (0,0), (64,0), (0,64), (64,64) */
-			for (int by = 0; by <= 64; by += 64) {
-				for (int bx = 0; bx <= 64; bx += 64) {
+    // These are the INNER (no padding) bases for each quadrant
+    const icoeff_t* baseLL = quadrants[0] + pad_l * dest_stride + pad_l; // top-left quadrant
+    const icoeff_t* baseHL = quadrants[1] + pad_l * dest_stride + pad_l; // top-right quadrant
+    const icoeff_t* baseLH = quadrants[2] + pad_l * dest_stride + pad_l; // bottom-left quadrant
+    const icoeff_t* baseHH = quadrants[3] + pad_l * dest_stride + pad_l; // bottom-right quadrant
 
-					char pLL[256], pHL[256], pLH[256], pHH[256];
+    // Full tile size represented by the 2x2 quadrants (without padding)
+    const int tile_w = 2 * block_width;
+    const int tile_h = 2 * block_height;
 
-					/* Put dumps somewhere stable (your Desktop/libisyntax folder), and include x0/y0 */
-					/* For your current -n 2 case:
-					- OpenJPEG resno=0 corresponds to LL
-					- OpenJPEG resno=1 corresponds to HL/LH/HH
-					*/
-					const int rLL = 0;
-					const int rH  = 1;
+    const int rLL = 0;
+    const int rH  = 1;
 
-					snprintf(pLL, sizeof(pLL),
-							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LL_c%d_x0_%d_y0_%d.bin", rLL, color, bx, by);
-					snprintf(pHL, sizeof(pHL),
-							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HL_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
-					snprintf(pLH, sizeof(pLH),
-							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
-					snprintf(pHH, sizeof(pHH),
-							"/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
+    for (int by = 0; by + h <= tile_h; by += h) {
+        for (int bx = 0; bx + w <= tile_w; bx += w) {
 
+            // Pick quadrant and local coords within that quadrant
+            const icoeff_t* srcLL = NULL;
+            const icoeff_t* srcHL = NULL;
+            const icoeff_t* srcLH = NULL;
+            const icoeff_t* srcHH = NULL;
+            int lx = bx;
+            int ly = by;
 
+            if (bx < block_width && by < block_height) {
+                // top-left quadrant
+                srcLL = baseLL; srcHL = baseLL; srcLH = baseLL; srcHH = baseLL;
+            } else if (bx >= block_width && by < block_height) {
+                // top-right quadrant
+                srcLL = baseHL; srcHL = baseHL; srcLH = baseHL; srcHH = baseHL;
+                lx = bx - block_width;
+            } else if (bx < block_width && by >= block_height) {
+                // bottom-left quadrant
+                srcLL = baseLH; srcHL = baseLH; srcLH = baseLH; srcHH = baseLH;
+                ly = by - block_height;
+            } else {
+                // bottom-right quadrant
+                srcLL = baseHH; srcHL = baseHH; srcLH = baseHH; srcHH = baseHH;
+                lx = bx - block_width;
+                ly = by - block_height;
+            }
 
-					dump_coeff_block_bin_i32(pLL, qLL, dest_stride, bx, by, w, h, "LL");
-					dump_coeff_block_bin_i32(pHL, qHL, dest_stride, bx, by, w, h, "HL");
-					dump_coeff_block_bin_i32(pLH, qLH, dest_stride, bx, by, w, h, "LH");
-					dump_coeff_block_bin_i32(pHH, qHH, dest_stride, bx, by, w, h, "HH");
-				}
-			}
-		}
+            char pLL[256], pHL[256], pLH[256], pHH[256];
+            snprintf(pLL, sizeof(pLL),
+                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LL_c%d_x0_%d_y0_%d.bin", rLL, color, bx, by);
+            snprintf(pHL, sizeof(pHL),
+                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HL_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
+            snprintf(pLH, sizeof(pLH),
+                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
+            snprintf(pHH, sizeof(pHH),
+                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
+
+            // NOTE: we dump from the chosen quadrant base, but with LOCAL x0/y0 (lx,ly)
+            dump_coeff_block_bin_i32(pLL, srcLL, dest_stride, lx, ly, w, h, "LL");
+            dump_coeff_block_bin_i32(pHL, srcHL, dest_stride, lx, ly, w, h, "HL");
+            dump_coeff_block_bin_i32(pLH, srcLH, dest_stride, lx, ly, w, h, "LH");
+            dump_coeff_block_bin_i32(pHH, srcHH, dest_stride, lx, ly, w, h, "HH");
+        }
+    }
+}
+
 	}
 
 
