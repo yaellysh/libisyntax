@@ -1751,6 +1751,19 @@ void isyntax_idwt(icoeff_t* idwt, i32 quadrant_width, i32 quadrant_height, bool 
 
 }
 
+static void dump_plane_bin_i32(
+    const char *path,
+    const icoeff_t *plane,
+    int w,
+    int h
+) {
+    FILE *f = fopen(path, "wb");
+    if (!f) { perror(path); return; }
+    // if icoeff_t is int32-like, write directly
+    fwrite(plane, sizeof(icoeff_t), (size_t)w * (size_t)h, f);
+    fclose(f);
+}
+
 static inline void get_offsetted_coeff_blocks(icoeff_t** ll_hl_lh_hh, i32 offset, isyntax_tile_channel_t* color_channel, i32 block_stride, icoeff_t* black_dummy_coeff, icoeff_t* white_dummy_coeff) {
 	if (color_channel->coeff_ll) {
 		ll_hl_lh_hh[0] = color_channel->coeff_ll + offset; //ll
@@ -1941,6 +1954,65 @@ static void dump_coeff_block_bin_i32(
     fclose(f);
 }
 
+#include <limits.h>  // INT32_MIN, INT32_MAX
+
+static void isy_print_block_stats(const char *label,
+                                  const icoeff_t *base,
+                                  int stride,
+                                  int bx, int by,
+                                  int w, int h)
+{
+    long long sum = 0;
+    int32_t mn = INT32_MAX;
+    int32_t mx = INT32_MIN;
+
+    for (int y = 0; y < h; ++y) {
+        const icoeff_t *row = base + (by + y) * stride + bx;
+        for (int x = 0; x < w; ++x) {
+            int32_t v = (int32_t)row[x];
+            if (v < mn) mn = v;
+            if (v > mx) mx = v;
+            sum += (long long)v;
+        }
+    }
+
+    double mean = (double)sum / (double)(w * h);
+    // fprintf(stderr,
+    //         "[PREIDWT_STATS] %s bx=%d by=%d w=%d h=%d min=%d max=%d mean=%.3f\n",
+    //         label, bx, by, w, h, mn, mx, mean);
+}
+
+static void dump_plane_bin_i32_with_header(const char *path,
+                                           const icoeff_t *src,
+                                           int src_stride,   // in samples
+                                           int w,
+                                           int h,
+                                           const char *label)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) { perror("fopen"); return; }
+
+    // Header
+    fprintf(f, "ISY_PLANE_DUMP\n");
+    fprintf(f, "label=%s\n", label ? label : "plane");
+    fprintf(f, "x0=0\n");
+    fprintf(f, "y0=0\n");
+    fprintf(f, "w=%d\n", w);
+    fprintf(f, "h=%d\n", h);
+    fprintf(f, "format=int16_rowmajor\n");
+    fprintf(f, "DATA_BEGIN\n");
+
+    // Payload: write row-by-row to guarantee rowmajor packed output
+    for (int y = 0; y < h; ++y) {
+        const icoeff_t *row = src + y * src_stride;
+        fwrite(row, sizeof(icoeff_t), (size_t)w, f);
+    }
+
+    fclose(f);
+    fprintf(stderr, "[DUMP] wrote %s (%dx%d)\n", path, w, h);
+}
+
+
 u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi, i32 scale, i32 tile_x, i32 tile_y, i32 color, icoeff_t* dest_buffer) {
 	isyntax_level_t* level = wsi->levels + scale;
 	ASSERT(tile_x >= 0 && tile_x < level->width_in_tiles);
@@ -1950,13 +2022,9 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 
 	u32 adj_tiles = isyntax_get_adjacent_tiles_mask(level, tile_x, tile_y);
 
-//	ASSERT(channel->neighbors_loaded == adj_tiles);
-
-	// Prepare for stitching together the input image, with margins sampled from adjacent tiles for each quadrant
 	i32 pad_l = ISYNTAX_IDWT_PAD_L;
 	i32 pad_r = ISYNTAX_IDWT_PAD_R;
 	i32 pad_l_plus_r = pad_l + pad_r;
-//	ASSERT(sizeof(icoeff_t) * pad_amount == sizeof(u64)); // blit 64 bits == 4 pixels
 	i32 block_width = isyntax->block_width;
 	i32 block_height = isyntax->block_height;
 	i32 quadrant_width = block_width + pad_l_plus_r;
@@ -1966,19 +2034,9 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 	icoeff_t* idwt = dest_buffer; // allocated/given by the caller ahead of time
 
 	i32 dest_stride = full_width;
-
-	// fill upper left quadrant with white
-	if (color == 0) {
-		for (i32 x = 0; x < quadrant_width; ++x) {
-			idwt[x] = 255;
-		}
-		for (i32 y = 1; y < quadrant_width; ++y) {
-			memcpy(idwt + y * dest_stride, idwt, quadrant_width * sizeof(icoeff_t));
-		}
-	}
+	
 	icoeff_t* h_dummy_coeff = isyntax->black_dummy_coeff;
 	icoeff_t* ll_dummy_coeff = (color == 0) ? isyntax->white_dummy_coeff : isyntax->black_dummy_coeff;
-
 
 	i32 source_stride = block_width;
 	i32 left_margin_source_x = block_width - pad_r;
@@ -2103,6 +2161,7 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 	if (adj_tiles & ISYNTAX_ADJ_TILE_CENTER) {
 		get_offsetted_coeff_blocks(ll_hl_lh_hh, 0,
 		                           channel, block_stride, h_dummy_coeff, ll_dummy_coeff);
+
 		for (i32 i = 0; i < 4; ++i) {
 			icoeff_t *source = ll_hl_lh_hh[i];
 			icoeff_t *dest = quadrants[i] + (pad_l * dest_stride) + pad_l;
@@ -2219,98 +2278,92 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 	}
 
 	// Dump the INNER (non-padding) region of each quadrant as a true LL|HL / LH|HH quad
-	static int dumped = 0;
-	if (dumped < 100) {
-		dumped++;
 
-		int inner_w = block_width;
-		int inner_h = block_height;
+	int inner_w = block_width;
+	int inner_h = block_height;
 
-		// inner top-left of each quadrant (skip padding margins)
-		// const icoeff_t* qLL = quadrants[0] + pad_l * dest_stride + pad_l;
-		// const icoeff_t* qHL = quadrants[1] + pad_l * dest_stride + pad_l;
-		// const icoeff_t* qLH = quadrants[2] + pad_l * dest_stride + pad_l;
-		// const icoeff_t* qHH = quadrants[3] + pad_l * dest_stride + pad_l;
+	char path[512];
+
+	if (getenv("ISY_DUMP_PREIDWT_BIN")) {
+
+		if (!(scale == 3 && tile_x == 10 && tile_y == 10)) {
+			goto skip_preidwt_dump;
+		}
+
+		fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
+				scale, tile_x, tile_y, color);
+
+		const int w = 64, h = 64;
+
+		const icoeff_t* qLL = quadrants[0];  // NOT baseLL
+		const icoeff_t* qHL = quadrants[1];
+		const icoeff_t* qLH = quadrants[2];
+		const icoeff_t* qHH = quadrants[3];
+
+		// Get number of DWT levels from environment variable (default to 2)
+		const char* levels_env = getenv("ISY_DWT_LEVELS");
+		const int num_dwt_levels = levels_env ? atoi(levels_env) : 2;
+
+		const int qw = quadrant_width;
+		const int qh = quadrant_height;
 		
+		for (int res_level = 0; res_level < num_dwt_levels; ++res_level) {
+			for (int by = 0; by + h <= block_height; by += h) {
+				for (int bx = 0; bx + w <= block_width; bx += w) {
 
-		char path[512];
-		// snprintf(path, sizeof(path), "pre_idwt_quad_s%d_x%d_y%d_c%d_%d.png",
-		// 		scale, tile_x, tile_y, color, dumped);
+					char pLL[256], pHL[256], pLH[256], pHH[256];
 
-		// dump_pre_idwt_quad_2x2_png_diverging(path, qLL, qHL, qLH, qHH,
-		// 									inner_w, inner_h, dest_stride);
+					snprintf(pLL, sizeof(pLL),
+					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LL_c%d.bin",
+					scale, tile_x, tile_y, color);
 
-		if (getenv("ISY_DUMP_PREIDWT_BIN")) {
-    fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
-            scale, tile_x, tile_y, color);
+					snprintf(pHL, sizeof(pHL),
+					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_HL_c%d.bin",
+					scale, tile_x, tile_y, color);
 
-    const int w = 64, h = 64;
+					snprintf(pLH, sizeof(pLH),
+					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LH_c%d.bin",
+					scale, tile_x, tile_y, color);
 
-    // These are the INNER (no padding) bases for each quadrant
-    const icoeff_t* baseLL = quadrants[0] + pad_l * dest_stride + pad_l; // top-left quadrant
-    const icoeff_t* baseHL = quadrants[1] + pad_l * dest_stride + pad_l; // top-right quadrant
-    const icoeff_t* baseLH = quadrants[2] + pad_l * dest_stride + pad_l; // bottom-left quadrant
-    const icoeff_t* baseHH = quadrants[3] + pad_l * dest_stride + pad_l; // bottom-right quadrant
+					snprintf(pHH, sizeof(pHH),
+					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_HH_c%d.bin",
+					scale, tile_x, tile_y, color);
 
-    // Full tile size represented by the 2x2 quadrants (without padding)
-    const int tile_w = 2 * block_width;
-    const int tile_h = 2 * block_height;
-
-    const int rLL = 0;
-    const int rH  = 1;
-
-    for (int by = 0; by + h <= tile_h; by += h) {
-        for (int bx = 0; bx + w <= tile_w; bx += w) {
-
-            // Pick quadrant and local coords within that quadrant
-            const icoeff_t* srcLL = NULL;
-            const icoeff_t* srcHL = NULL;
-            const icoeff_t* srcLH = NULL;
-            const icoeff_t* srcHH = NULL;
-            int lx = bx;
-            int ly = by;
-
-            if (bx < block_width && by < block_height) {
-                // top-left quadrant
-                srcLL = baseLL; srcHL = baseLL; srcLH = baseLL; srcHH = baseLL;
-            } else if (bx >= block_width && by < block_height) {
-                // top-right quadrant
-                srcLL = baseHL; srcHL = baseHL; srcLH = baseHL; srcHH = baseHL;
-                lx = bx - block_width;
-            } else if (bx < block_width && by >= block_height) {
-                // bottom-left quadrant
-                srcLL = baseLH; srcHL = baseLH; srcLH = baseLH; srcHH = baseLH;
-                ly = by - block_height;
-            } else {
-                // bottom-right quadrant
-                srcLL = baseHH; srcHL = baseHH; srcLH = baseHH; srcHH = baseHH;
-                lx = bx - block_width;
-                ly = by - block_height;
-            }
-
-            char pLL[256], pHL[256], pLH[256], pHH[256];
-            snprintf(pLL, sizeof(pLL),
-                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LL_c%d_x0_%d_y0_%d.bin", rLL, color, bx, by);
-            snprintf(pHL, sizeof(pHL),
-                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HL_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
-            snprintf(pLH, sizeof(pLH),
-                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_LH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
-            snprintf(pHH, sizeof(pHH),
-                     "/Users/yaellyshkow/Desktop/libisyntax/isy_r%d_HH_c%d_x0_%d_y0_%d.bin", rH,  color, bx, by);
-
-            // NOTE: we dump from the chosen quadrant base, but with LOCAL x0/y0 (lx,ly)
-            dump_coeff_block_bin_i32(pLL, srcLL, dest_stride, lx, ly, w, h, "LL");
-            dump_coeff_block_bin_i32(pHL, srcHL, dest_stride, lx, ly, w, h, "HL");
-            dump_coeff_block_bin_i32(pLH, srcLH, dest_stride, lx, ly, w, h, "LH");
-            dump_coeff_block_bin_i32(pHH, srcHH, dest_stride, lx, ly, w, h, "HH");
-        }
-    }
-}
-
+					// dump_plane_bin_i32_with_header currently writes int16 rowmajor; that's fine
+					dump_plane_bin_i32_with_header(pLL, qLL, dest_stride, qw, qh, "Q_LL");
+					dump_plane_bin_i32_with_header(pHL, qHL, dest_stride, qw, qh, "Q_HL");
+					dump_plane_bin_i32_with_header(pLH, qLH, dest_stride, qw, qh, "Q_LH");
+					dump_plane_bin_i32_with_header(pHH, qHH, dest_stride, qw, qh, "Q_HH");
+				}
+			}
+		}
 	}
+		
+	skip_preidwt_dump:
+	
+		isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
 
+	if (getenv("ISY_DUMP_POSTIDWT_BIN")) {
+		char pOut[512];
+		snprintf(pOut, sizeof(pOut),
+				"/Users/yaellyshkow/Desktop/libisyntax/isy_postidwt_s%d_tx%d_ty%d_c%d.bin",
+				scale, tile_x, tile_y, color);
 
-	isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
+		// Dump the *center* region (exclude padding) so it matches your python reconstruction size.
+		const int out_w = 2 * block_width;
+		const int out_h = 2 * block_height;
+
+		const int start_x = pad_l;      // skip left pad
+		const int start_y = pad_l;      // skip top pad
+		const int stride  = dest_stride;
+
+		dump_plane_bin_i32_with_header(pOut,
+			idwt + start_y * stride + start_x,
+			stride,
+			out_w,
+			out_h,
+			"POST_IDWT_SPATIAL");
+	}
 
 	u32 invalid_edges = invalid_neighbors_h | invalid_neighbors_ll;
 	return invalid_edges;
