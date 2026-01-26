@@ -2308,40 +2308,6 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		const int qw = quadrant_width;
 		const int qh = quadrant_height;
 		
-		// for (int res_level = 0; res_level < num_dwt_levels; ++res_level) {
-		// 	char pLL[256], pHL[256], pLH[256], pHH[256];
-
-		// 	snprintf(pLL, sizeof(pLL),
-		// 	"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LL_c%d.bin",
-		// 	scale, tile_x, tile_y, color);
-
-		// 	snprintf(pHL, sizeof(pHL),
-		// 	"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_HL_c%d.bin",
-		// 	scale, tile_x, tile_y, color);
-
-		// 	snprintf(pLH, sizeof(pLH),
-		// 	"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LH_c%d.bin",
-		// 	scale, tile_x, tile_y, color);
-
-		// 	snprintf(pHH, sizeof(pHH),
-		// 	"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_HH_c%d.bin",
-		// 	scale, tile_x, tile_y, color);
-
-		// 	const icoeff_t* qLL_inner = quadrants[0] + pad_l * dest_stride + pad_l;
-		// 	const icoeff_t* qHL_inner = quadrants[1] + pad_l * dest_stride + pad_l;
-		// 	const icoeff_t* qLH_inner = quadrants[2] + pad_l * dest_stride + pad_l;
-		// 	const icoeff_t* qHH_inner = quadrants[3] + pad_l * dest_stride + pad_l;
-
-		// 	const int inner_w = block_width;
-		// 	const int inner_h = block_height;
-
-		// 	dump_plane_bin_i32_with_header(pLL, qLL_inner, dest_stride, inner_w, inner_h, "Q_LL");
-		// 	dump_plane_bin_i32_with_header(pHL, qHL_inner, dest_stride, inner_w, inner_h, "Q_HL");
-		// 	dump_plane_bin_i32_with_header(pLH, qLH_inner, dest_stride, inner_w, inner_h, "Q_LH");
-		// 	dump_plane_bin_i32_with_header(pHH, qHH_inner, dest_stride, inner_w, inner_h, "Q_HH");
-
-	
-		// }
 		if (getenv("ISY_DUMP_PREIDWT_BIN")) {
 			if (!(scale == 3 && tile_x == 10 && tile_y == 10)) {
 				goto skip_preidwt_dump;
@@ -2368,6 +2334,7 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 			const icoeff_t* qLL_inner = quadrants[0] + pad_l * dest_stride + pad_l;
 
 			/* highpass bands are phase-shifted */
+			// THIS SEEMS TO BE THE KEY!!	
 			const icoeff_t* qHL_inner = quadrants[1] + pad_l * dest_stride + (pad_l + 1);
 			const icoeff_t* qLH_inner = quadrants[2] + (pad_l + 1) * dest_stride + pad_l;
 			const icoeff_t* qHH_inner = quadrants[3] + (pad_l + 1) * dest_stride + (pad_l + 1);
