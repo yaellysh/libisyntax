@@ -2319,17 +2319,21 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 			char pLL[256], pHL[256], pLH[256], pHH[256];
 
 			snprintf(pLL, sizeof(pLL),
-					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LL_c%d.bin",
-					scale, tile_x, tile_y, color);
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LL_c%d.bin",
+			scale, tile_x, tile_y, color);
+
 			snprintf(pHL, sizeof(pHL),
-					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_HL_c%d.bin",
-					scale, tile_x, tile_y, color);
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r1_HL_c%d.bin",
+			scale, tile_x, tile_y, color);
+
 			snprintf(pLH, sizeof(pLH),
-					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LH_c%d.bin",
-					scale, tile_x, tile_y, color);
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r1_LH_c%d.bin",
+			scale, tile_x, tile_y, color);
+
 			snprintf(pHH, sizeof(pHH),
-					"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_HH_c%d.bin",
-					scale, tile_x, tile_y, color);
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r1_HH_c%d.bin",
+			scale, tile_x, tile_y, color);
+
 
 			const icoeff_t* qLL_inner = quadrants[0] + pad_l * dest_stride + pad_l;
 
@@ -2344,13 +2348,7 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 			dump_plane_bin_i32_with_header(pLH, qLH_inner, dest_stride, block_width, block_height, "Q_LH");
 			dump_plane_bin_i32_with_header(pHH, qHH_inner, dest_stride, block_width, block_height, "Q_HH");
 		}
-	}
-		
-	skip_preidwt_dump:
 	
-		isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
-
-	if (getenv("ISY_DUMP_POSTIDWT_BIN")) {
 		char pOut[512];
 		snprintf(pOut, sizeof(pOut),
 				"/Users/yaellyshkow/Desktop/libisyntax/isy_postidwt_s%d_tx%d_ty%d_c%d.bin",
@@ -2371,6 +2369,10 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 			out_h,
 			"POST_IDWT_SPATIAL");
 	}
+
+	skip_preidwt_dump:
+	
+		isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
 
 	u32 invalid_edges = invalid_neighbors_h | invalid_neighbors_ll;
 	return invalid_edges;
