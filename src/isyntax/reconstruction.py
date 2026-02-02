@@ -342,7 +342,7 @@ def reconstruct_one_level_from_bins(
     write_pgm8_fixed(out_path, packed, level_shift=0)
 
 def reconstruct_full_padded(base_dir: str, out_path: str, color: int, block_w: int, block_h: int):
-    prefix = f"isy_full_s{TARGET_SCALE}_tx{TARGET_TX}_ty{TARGET_TY}_r0"
+    prefix = f"isy_s{TARGET_SCALE}_tx{TARGET_TX}_ty{TARGET_TY}_r0"
     LL = load_full_plane(os.path.join(base_dir, f"{prefix}_LL_c{color}.bin"))
     HL = load_full_plane(os.path.join(base_dir, f"{prefix}_HL_c{color}.bin"))
     LH = load_full_plane(os.path.join(base_dir, f"{prefix}_LH_c{color}.bin"))

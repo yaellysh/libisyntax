@@ -1784,6 +1784,7 @@ static inline void get_offsetted_coeff_blocks(icoeff_t** ll_hl_lh_hh, i32 offset
 
 
 
+
 u32 isyntax_get_adjacent_tiles_mask(isyntax_level_t* level, i32 tile_x, i32 tile_y) {
 	ASSERT(tile_x >= 0 && tile_y >= 0);
 	ASSERT(tile_x < level->width_in_tiles && tile_y < level->height_in_tiles);
@@ -1920,40 +1921,6 @@ static void dump_pre_idwt_quad_2x2_png_diverging(
     free(img);
 }
 
-static void dump_coeff_block_bin_i32(
-    const char* path,
-    const icoeff_t* buf,
-    int stride,
-    int x0,
-    int y0,
-    int w,
-    int h,
-    const char* label
-) {
-    FILE* f = fopen(path, "wb");
-    if (!f) { perror("dump_coeff_block_bin_i32 fopen"); return; }
-
-    fprintf(f,
-        "ISY_CBLK_DUMP\n"
-        "label=%s\n"
-        "x0=%d\ny0=%d\n"
-        "w=%d\nh=%d\n"
-        "format=int32_rowmajor\n"
-        "DATA_BEGIN\n",
-        label ? label : "?", x0, y0, w, h
-    );
-
-    for (int yy = 0; yy < h; yy++) {
-        const icoeff_t* row = buf + (y0 + yy) * stride + x0;
-        for (int xx = 0; xx < w; xx++) {
-            int32_t v = (int32_t)row[xx];
-            fwrite(&v, sizeof(v), 1, f);
-        }
-    }
-
-    fclose(f);
-}
-
 #include <limits.h>  // INT32_MIN, INT32_MAX
 
 static void isy_print_block_stats(const char *label,
@@ -1990,7 +1957,7 @@ static void dump_plane_bin_i32_with_header(const char *path,
                                            const char *label)
 {
     FILE *f = fopen(path, "wb");
-    if (!f) { perror("fopen"); return; }
+    if (!f) { perror(path); return; }
 
     // Header
     fprintf(f, "ISY_PLANE_DUMP\n");
@@ -2013,6 +1980,12 @@ static void dump_plane_bin_i32_with_header(const char *path,
 }
 
 // WORKING HERE
+
+static int env_int_or(const char *name, int defv) {
+    const char *s = getenv(name);
+    if (!s || !*s) return defv;
+    return atoi(s);
+}
 
 u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi, i32 scale, i32 tile_x, i32 tile_y, i32 color, icoeff_t* dest_buffer) {
 	isyntax_level_t* level = wsi->levels + scale;
@@ -2287,10 +2260,9 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 
 	if (getenv("ISY_DUMP_PREIDWT_BIN")) {
 
-		if (!(scale == 3 && tile_x == 10 && tile_y == 10)) {
-			goto skip_preidwt_dump;
-		}
+		const char* levels_env = getenv("ISY_DWT_LEVELS");
 
+		/* If we’re here, dump for THIS run’s (scale,tile_x,tile_y). */
 		fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
 				scale, tile_x, tile_y, color);
 
@@ -2302,56 +2274,55 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		const icoeff_t* qHH = quadrants[3];
 
 		// Get number of DWT levels from environment variable (default to 2)
-		const char* levels_env = getenv("ISY_DWT_LEVELS");
 		const int num_dwt_levels = levels_env ? atoi(levels_env) : 2;
 
 		const int qw = quadrant_width;
 		const int qh = quadrant_height;
-		
-		if (getenv("ISY_DUMP_PREIDWT_BIN")) {
-			if (!(scale == 3 && tile_x == 10 && tile_y == 10)) {
-				goto skip_preidwt_dump;
-			}
 
-			fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
-					scale, tile_x, tile_y, color);
+		char pLL[256], pHL[256], pLH[256], pHH[256];
 
-			char pLL[256], pHL[256], pLH[256], pHH[256];
+		const icoeff_t* qLL_inner = quadrants[0] + pad_l * dest_stride + pad_l;
 
-			snprintf(pLL, sizeof(pLL),
-			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r0_LL_c%d.bin",
+		int r = 1;
+
+		/* highpass bands are phase-shifted */
+		// THIS SEEMS TO BE THE KEY!!	
+		const icoeff_t* qHL_inner = quadrants[1] + pad_l * dest_stride + (pad_l + 1);
+		const icoeff_t* qLH_inner = quadrants[2] + (pad_l + 1) * dest_stride + pad_l;
+		const icoeff_t* qHH_inner = quadrants[3] + (pad_l + 1) * dest_stride + (pad_l + 1);
+
+		fprintf(stderr, "[DUMP_DEBUG] block=%dx%d quad=%dx%d full=%dx%d\n",
+			block_width, block_height, quadrant_width, quadrant_height,
+			full_width, full_height);
+
+		fprintf(stderr,
+			"[DUMP] block=%dx%d quad=%dx%d pad_l=%d dest_stride=%d\n",
+			block_width, block_height, qw, qh, pad_l, dest_stride);
+			
+		/* Dump LL once per run (or keep the r==K logic if you really want it) */
+		snprintf(pLL, sizeof(pLL),
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_s%d_tx%d_ty%d_r0_LL_c%d.bin",
 			scale, tile_x, tile_y, color);
+		dump_plane_bin_i32_with_header(pLL, qLL_inner, dest_stride, block_width, block_height, "Q_LL");
 
-			snprintf(pHL, sizeof(pHL),
-			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r1_HL_c%d.bin",
-			scale, tile_x, tile_y, color);
+		/* Dump H bands with r coming from your transform level */
+		snprintf(pHL, sizeof(pHL),
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_s%d_tx%d_ty%d_r%d_HL_c%d.bin",
+			scale, tile_x, tile_y, r, color);
+		snprintf(pLH, sizeof(pLH),
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_s%d_tx%d_ty%d_r%d_LH_c%d.bin",
+			scale, tile_x, tile_y, r, color);
+		snprintf(pHH, sizeof(pHH),
+			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_s%d_tx%d_ty%d_r%d_HH_c%d.bin",
+			scale, tile_x, tile_y, r, color);
 
-			snprintf(pLH, sizeof(pLH),
-			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r1_LH_c%d.bin",
-			scale, tile_x, tile_y, color);
-
-			snprintf(pHH, sizeof(pHH),
-			"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_full_s%d_tx%d_ty%d_r1_HH_c%d.bin",
-			scale, tile_x, tile_y, color);
-
-
-			const icoeff_t* qLL_inner = quadrants[0] + pad_l * dest_stride + pad_l;
-
-			/* highpass bands are phase-shifted */
-			// THIS SEEMS TO BE THE KEY!!	
-			const icoeff_t* qHL_inner = quadrants[1] + pad_l * dest_stride + (pad_l + 1);
-			const icoeff_t* qLH_inner = quadrants[2] + (pad_l + 1) * dest_stride + pad_l;
-			const icoeff_t* qHH_inner = quadrants[3] + (pad_l + 1) * dest_stride + (pad_l + 1);
-
-			dump_plane_bin_i32_with_header(pLL, qLL_inner, dest_stride, block_width, block_height, "Q_LL");
-			dump_plane_bin_i32_with_header(pHL, qHL_inner, dest_stride, block_width, block_height, "Q_HL");
-			dump_plane_bin_i32_with_header(pLH, qLH_inner, dest_stride, block_width, block_height, "Q_LH");
-			dump_plane_bin_i32_with_header(pHH, qHH_inner, dest_stride, block_width, block_height, "Q_HH");
-		}
+		dump_plane_bin_i32_with_header(pHL, qHL_inner, dest_stride, block_width, block_height, "Q_HL");
+		dump_plane_bin_i32_with_header(pLH, qLH_inner, dest_stride, block_width, block_height, "Q_LH");
+		dump_plane_bin_i32_with_header(pHH, qHH_inner, dest_stride, block_width, block_height, "Q_HH");
 	
 		char pOut[512];
 		snprintf(pOut, sizeof(pOut),
-				"/Users/yaellyshkow/Desktop/libisyntax/isy_postidwt_s%d_tx%d_ty%d_c%d.bin",
+				"/Users/yaellyshkow/Desktop/iSyntaxtoj2k/libisyntax/isy_postidwt_s%d_tx%d_ty%d_c%d.bin",
 				scale, tile_x, tile_y, color);
 
 		// Dump the *center* region (exclude padding) so it matches your python reconstruction size.
@@ -2369,10 +2340,6 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 			out_h,
 			"POST_IDWT_SPATIAL");
 	}
-
-	skip_preidwt_dump:
-	
-		isyntax_idwt(idwt, quadrant_width, quadrant_height, output_pngs, debug_png);
 
 	u32 invalid_edges = invalid_neighbors_h | invalid_neighbors_ll;
 	return invalid_edges;

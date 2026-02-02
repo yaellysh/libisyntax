@@ -243,6 +243,19 @@ typedef struct isyntax_tile_channel_t {
 	icoeff_t* coeff_h;
 	icoeff_t* coeff_ll;
 	u32 neighbors_loaded;
+	int num_dwt_levels;          /* K */
+    icoeff_t* coeff_ll_coarse;   /* r0_LL, size = ll_w * ll_h (per tile at this scale) */
+
+    /* rL_H contains 3 planes contiguous: HL, LH, HH (each plane is level-dependent size) */
+    icoeff_t** coeff_h_levels;   /* array length K, coeff_h_levels[L-1] -> rL_H base pointer */
+
+    /* (optional but strongly recommended) sizes per level */
+    int* level_w;               /* width of each plane at level L (for HL/LH/HH), length K */
+    int* level_h;               /* height of each plane at level L, length K */
+
+    /* If LL size differs, store ll_w/ll_h too */
+    int ll_w;
+    int ll_h;
 } isyntax_tile_channel_t;
 
 typedef struct isyntax_tile_t {
