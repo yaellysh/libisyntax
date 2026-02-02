@@ -1779,11 +1779,7 @@ static inline void get_offsetted_coeff_blocks(icoeff_t** ll_hl_lh_hh, i32 offset
 		ll_hl_lh_hh[2] = black_dummy_coeff;
 		ll_hl_lh_hh[3] = black_dummy_coeff;
 	}
-
 }
-
-
-
 
 u32 isyntax_get_adjacent_tiles_mask(isyntax_level_t* level, i32 tile_x, i32 tile_y) {
 	ASSERT(tile_x >= 0 && tile_y >= 0);
@@ -1976,7 +1972,7 @@ static void dump_plane_bin_i32_with_header(const char *path,
     }
 
     fclose(f);
-    fprintf(stderr, "[DUMP] wrote %s (%dx%d)\n", path, w, h);
+    // fprintf(stderr, "[DUMP] wrote %s (%dx%d)\n", path, w, h);
 }
 
 // WORKING HERE
@@ -1993,6 +1989,14 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 	ASSERT(tile_y >= 0 && tile_y < level->height_in_tiles);
 	isyntax_tile_t* tile = level->tiles + tile_y * level->width_in_tiles + tile_x;
 	isyntax_tile_channel_t* channel = tile->color_channels + color;
+
+	fprintf(stderr,
+	"[ISY] scale=%d tile=(%d,%d) color=%d coeff_ll=%p coeff_h=%p num_dwt=%d coeff_ll_coarse=%p coeff_h_levels=%p\n",
+	scale, tile_x, tile_y, color,
+	(void*)channel->coeff_ll, (void*)channel->coeff_h,
+	channel->num_dwt_levels,
+	(void*)channel->coeff_ll_coarse, (void*)channel->coeff_h_levels);
+
 
 	u32 adj_tiles = isyntax_get_adjacent_tiles_mask(level, tile_x, tile_y);
 
@@ -2262,10 +2266,6 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 
 		const char* levels_env = getenv("ISY_DWT_LEVELS");
 
-		/* If we’re here, dump for THIS run’s (scale,tile_x,tile_y). */
-		fprintf(stderr, "ISY_DUMP_PREIDWT_BIN hit: scale=%d tile=(%d,%d) color=%d\n",
-				scale, tile_x, tile_y, color);
-
 		const int w = 64, h = 64;
 
 		const icoeff_t* qLL = quadrants[0];  // NOT baseLL
@@ -2290,14 +2290,6 @@ u32 isyntax_idwt_tile_for_color_channel(isyntax_t* isyntax, isyntax_image_t* wsi
 		const icoeff_t* qHL_inner = quadrants[1] + pad_l * dest_stride + (pad_l + 1);
 		const icoeff_t* qLH_inner = quadrants[2] + (pad_l + 1) * dest_stride + pad_l;
 		const icoeff_t* qHH_inner = quadrants[3] + (pad_l + 1) * dest_stride + (pad_l + 1);
-
-		fprintf(stderr, "[DUMP_DEBUG] block=%dx%d quad=%dx%d full=%dx%d\n",
-			block_width, block_height, quadrant_width, quadrant_height,
-			full_width, full_height);
-
-		fprintf(stderr,
-			"[DUMP] block=%dx%d quad=%dx%d pad_l=%d dest_stride=%d\n",
-			block_width, block_height, qw, qh, pad_l, dest_stride);
 			
 		/* Dump LL once per run (or keep the r==K logic if you really want it) */
 		snprintf(pLL, sizeof(pLL),

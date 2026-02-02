@@ -243,6 +243,7 @@ typedef struct isyntax_tile_channel_t {
 	icoeff_t* coeff_h;
 	icoeff_t* coeff_ll;
 	u32 neighbors_loaded;
+	
 	int num_dwt_levels;          /* K */
     icoeff_t* coeff_ll_coarse;   /* r0_LL, size = ll_w * ll_h (per tile at this scale) */
 

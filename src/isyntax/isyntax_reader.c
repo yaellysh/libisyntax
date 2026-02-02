@@ -111,11 +111,22 @@ static void isyntax_openslide_load_tile_coefficients_ll_or_h(isyntax_cache_t* ca
         // TODO(avirodov): int vs i32 vs u32 consistently.
         ASSERT(codeblock->color_component == (u32)color);
         ASSERT(codeblock->scale == (u32)tile->tile_scale);
+        isyntax_tile_channel_t *channel = &tile->color_channels[color];
+
         if (is_ll) {
-            tile->color_channels[color].coeff_ll = (icoeff_t *) block_alloc(cache->ll_coeff_block_allocator);
+            channel->coeff_ll_coarse =
+                (icoeff_t *)block_alloc(cache->ll_coeff_block_allocator);
         } else {
-            tile->color_channels[color].coeff_h = (icoeff_t *) block_alloc(cache->h_coeff_block_allocator);
+            channel->coeff_h =
+                (icoeff_t *)block_alloc(cache->h_coeff_block_allocator);
         }
+
+        // channel->num_dwt_levels = 0;
+        // channel->coeff_ll_coarse = NULL;
+        // channel->coeff_h = NULL;
+        // channel->w = NULL;
+        // channel->hgt = NULL;
+
         // TODO(avirodov): fancy allocators, for multiple sequential blocks (aka chunk). Or let OS do the caching.
         // Adding 7 safety bytes so bitstream_lsb_read() won't access out of bounds in isyntax_hulsken_decompress().
         u8* codeblock_data = malloc(codeblock->block_size + 7);
